@@ -82,8 +82,15 @@ export interface AnalyticsEvent<E extends EventName = EventName> {
 /* Config                                                              */
 /* ------------------------------------------------------------------ */
 
-const API_URL = process.env.NEXT_PUBLIC_EVENTS_API_URL?.replace(/\/+$/, "");
-const API_KEY = process.env.NEXT_PUBLIC_EVENTS_API_KEY ?? "";
+/** Defaults match the backend's local dev setup (backend/.env.example). */
+export const DEFAULT_EVENTS_API_URL = "http://localhost:8000";
+export const DEFAULT_EVENTS_API_KEY = "dev-key-change-me";
+
+const API_URL = (process.env.NEXT_PUBLIC_EVENTS_API_URL || DEFAULT_EVENTS_API_URL).replace(
+  /\/+$/,
+  "",
+);
+const API_KEY = process.env.NEXT_PUBLIC_EVENTS_API_KEY || DEFAULT_EVENTS_API_KEY;
 const CITY = (process.env.NEXT_PUBLIC_CITY ?? "hyderabad").toLowerCase();
 const RESTAURANT_ID = process.env.NEXT_PUBLIC_RESTAURANT_ID ?? "r_saffron_sage";
 const RESTAURANT_NAME = "Saffron & Sage";
@@ -211,6 +218,14 @@ interface BackendEvent {
   session_id: string;
   city: string;
   payload: Record<string, unknown>;
+}
+
+/** Route -> backend `entry_point` label (home, menu, item, cart, checkout, order). */
+function entryPoint(path: string): string {
+  if (path === "/") return "home";
+  if (path.startsWith("/menu/")) return "item";
+  const first = path.split("/")[1];
+  return first || "home";
 }
 
 /** Frontend categories ("Starters", "Mains", "Beverages") -> backend enum. */
@@ -422,7 +437,13 @@ function toBackend(e: AnalyticsEvent): Mapped[] {
         tags: [],
         comment: p.comment,
       };
-      if (p.orderId) payload.order_id = backendOrderId(p.orderId);
+      // The backend requires order_id on item_reviewed; reviews that can't be tied to an
+      // order (the customer never ordered this dish in this browser) are not sent.
+      if (!p.orderId) {
+        if (IS_DEV) console.info("[analytics] item_reviewed skipped: no order for", p.itemId);
+        return [];
+      }
+      payload.order_id = backendOrderId(p.orderId);
       return [{ type: "item_reviewed", payload }];
     }
 
@@ -545,7 +566,12 @@ export function track<E extends EventName>(eventName: E, properties: EventProper
         ...base,
         event_id: uuid(),
         event_type: "session_started",
-        payload: { device_type: event.deviceType, entry_page: event.page },
+        payload: {
+          entry_point: entryPoint(event.page),
+          referrer: document.referrer || null,
+          device_type: event.deviceType,
+          entry_page: event.page,
+        },
       });
     }
 

@@ -9,6 +9,7 @@ import { track } from "@/lib/analytics";
 import { useHydrated } from "@/lib/useHydrated";
 import { formatPrice } from "@/lib/utils";
 import { useCart } from "@/store/cart";
+import { useOrders } from "@/store/orders";
 import { ratingSummary, reviewsFor, useReviews } from "@/store/reviews";
 import { ItemCard } from "./ItemCard";
 import { QuantityStepper } from "./QuantityStepper";
@@ -24,6 +25,15 @@ export function ItemDetail({ item }: { item: MenuItem }) {
   const openDrawer = useCart((s) => s.openDrawer);
   const hydrated = useHydrated();
   const userReviews = useReviews((s) => s.userReviews);
+  const orders = useOrders((s) => s.orders);
+
+  // Link item-page reviews to the customer's latest confirmed order of this dish, if any.
+  const lastOrderId = useMemo(() => {
+    if (!hydrated) return undefined;
+    return Object.values(orders)
+      .filter((o) => o.status === "confirmed" && o.items.some((i) => i.itemId === item.id))
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0]?.id;
+  }, [hydrated, orders, item.id]);
 
   const reviews = useMemo(
     () => reviewsFor(item.id, hydrated ? userReviews : []),
@@ -133,7 +143,13 @@ export function ItemDetail({ item }: { item: MenuItem }) {
             <p className="text-muted mt-1 mb-5 text-sm">
               Tried the {item.name}? Tell us how it was.
             </p>
-            <ReviewForm key={item.id} itemId={item.id} itemName={item.name} source="item_page" />
+            <ReviewForm
+              key={item.id}
+              itemId={item.id}
+              itemName={item.name}
+              source="item_page"
+              orderId={lastOrderId}
+            />
           </div>
         </div>
       </section>
