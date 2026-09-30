@@ -1,12 +1,43 @@
-# Saffron & Sage — restaurant frontend
+# Phenom — Saffron & Sage ordering site + Food Events API
 
-A warm, calm food-ordering storefront built with **Next.js (App Router)**, **TypeScript** and
-**Tailwind CSS**. It is frontend-only: the menu is static data, cart/orders/reviews live in the
-browser, payments are mocked, and every meaningful user action is sent as an analytics event
-to an existing backend that powers a separate dashboard.
+This repo holds both halves of the project:
+
+| Folder                 | What it is                                                                                                                                                                                                                                                            |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/` (root)             | **Frontend** — a warm, calm food-ordering storefront built with Next.js (App Router), TypeScript and Tailwind CSS. The menu is static data, cart/orders/reviews live in the browser, payments are mocked, and every meaningful user action is sent to the events API. |
+| [`backend/`](backend/) | **Food Events API** — a FastAPI service that validates those events and publishes them to Kafka (or to `events_out.jsonl` when no Kafka is configured). Merged from [Aksh00237/food-events-api](https://github.com/Aksh00237/food-events-api) with its history.       |
 
 - **Live site:** _add your Vercel URL here_
-- **Event contract:** [`docs/EVENTS.md`](docs/EVENTS.md)
+- **Event contract:** [`docs/EVENTS.md`](docs/EVENTS.md) (frontend) and [`backend/docs/FRONTEND_EVENTS.md`](backend/docs/FRONTEND_EVENTS.md) (API)
+
+## Run everything locally
+
+You need Node.js 20.9+ and Python 3.10+. Use two terminals.
+
+**1. Backend** (port 8000):
+
+```bash
+cd backend
+python -m venv venv
+source venv/bin/activate          # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+cp .env.example .env              # API_KEY=dev-key-change-me; clear KAFKA_BOOTSTRAP_SERVERS to write to events_out.jsonl
+uvicorn app.main:app --port 8000 --reload
+```
+
+**2. Frontend** (port 3000):
+
+```bash
+npm install
+cp .env.example .env.local        # already points at http://localhost:8000 with dev-key-change-me
+npm run dev
+```
+
+Open http://localhost:3000, add something to the cart and place an order. Within a few seconds
+the backend logs `POST /api/v1/events/batch 202`, and the events appear in Kafka (or in
+`backend/events_out.jsonl`). The frontend's `NEXT_PUBLIC_EVENTS_API_KEY` must equal the
+backend's `API_KEY`; if they are unset the frontend falls back to `http://localhost:8000` and
+`dev-key-change-me`, matching the backend defaults.
 
 ## Features
 
@@ -31,15 +62,15 @@ keyboard-accessible star rating, tabs and radio groups, reduced-motion support.
 - Framer Motion for animation, Sonner for toasts, Lucide for icons
 - ESLint (`eslint-config-next`) + Prettier (with the Tailwind plugin)
 
-## Getting started
+## Frontend only
 
 Requires Node.js 20.9+.
 
 ```bash
-git clone https://github.com/<your-username>/restaurant-frontend.git
-cd restaurant-frontend
+git clone https://github.com/Beeram12/phenom.git
+cd phenom
 npm install
-cp .env.example .env.local   # then edit the URL
+cp .env.example .env.local
 npm run dev                  # http://localhost:3000
 ```
 
@@ -114,6 +145,7 @@ data/           menu.ts (19 dishes), reviews.ts (seed reviews), restaurant.ts
 lib/            analytics.ts, validation.ts, utils.ts, hooks
 store/          Zustand stores: cart, orders, reviews (persisted to localStorage)
 docs/           EVENTS.md — analytics event contract
+backend/        Food Events API (FastAPI → Kafka): app/, scripts/, docs/
 ```
 
 ## Mock payments
