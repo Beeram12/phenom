@@ -1,0 +1,96 @@
+@import "tailwindcss";
+
+@theme inline {
+  --font-sans: var(--font-dm-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-fraunces), ui-serif, Georgia, serif;
+}
+
+@theme {
+  /* Brand palette */
+  --color-cream: #faf6f0;
+  --color-sand: #f3ece2;
+  --color-line: #e8ded1;
+  --color-ink: #2e2520;
+  --color-muted: #6b5e55;
+
+  /* Terracotta: 500 is the brand accent (decorative / large).
+     600+ meets 4.5:1 for text and white-on-fill buttons. */
+  --color-terracotta-50: #fbf1ea;
+  --color-terracotta-100: #f6e6dc;
+  --color-terracotta-500: #c8693f;
+  --color-terracotta-600: #a4522c;
+  --color-terracotta-700: #8a4424;
+
+  /* Olive: 500 is the brand secondary; 700 is the text-safe shade. */
+  --color-olive-50: #eef0e6;
+  --color-olive-500: #7a8b5c;
+  --color-olive-700: #566540;
+
+  --color-danger: #b3261e;
+
+  --shadow-soft: 0 1px 2px rgb(46 37 32 / 0.04), 0 8px 24px -12px rgb(46 37 32 / 0.12);
+  --shadow-lift: 0 2px 4px rgb(46 37 32 / 0.05), 0 16px 32px -12px rgb(46 37 32 / 0.18);
+}
+
+@layer base {
+  html {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    @apply bg-cream text-ink font-sans antialiased;
+  }
+
+  h1,
+  h2,
+  h3 {
+    @apply font-display tracking-tight;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-terracotta-600);
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+
+  ::selection {
+    background: var(--color-terracotta-100);
+  }
+}
+
+@utility btn {
+  @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-[12px] px-5 text-sm font-semibold transition duration-200 ease-out disabled:cursor-not-allowed disabled:opacity-60;
+}
+@utility btn-primary {
+  @apply btn bg-terracotta-600 shadow-soft hover:bg-terracotta-700 hover:shadow-lift text-white active:translate-y-px;
+}
+@utility btn-secondary {
+  @apply btn border-line text-ink hover:border-terracotta-500 hover:text-terracotta-700 border bg-white;
+}
+@utility btn-ghost {
+  @apply btn text-terracotta-700 hover:bg-terracotta-50;
+}
+@utility card {
+  @apply border-line/70 shadow-soft rounded-[16px] border bg-white;
+}
+@utility input {
+  @apply border-line text-ink placeholder:text-muted/70 hover:border-muted/40 focus:border-terracotta-600 focus:ring-terracotta-100 aria-[invalid=true]:border-danger w-full rounded-[12px] border bg-white px-4 py-3 text-base transition focus:ring-2 focus:outline-none;
+}
+@utility label {
+  @apply text-ink mb-1.5 block text-sm font-medium;
+}
+@utility field-error {
+  @apply text-danger mt-1.5 text-sm;
+}
+@utility container-page {
+  @apply mx-auto w-full max-w-6xl px-4 sm:px-6 lg:px-8;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
