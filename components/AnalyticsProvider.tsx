@@ -2,7 +2,11 @@
 
 import { usePathname } from "next/navigation";
 import { useEffect, useRef } from "react";
-import { track } from "@/lib/analytics";
+import { MENU } from "@/data/menu";
+import { registerItemCategories, track } from "@/lib/analytics";
+
+// Give the analytics adapter exact categories for every menu item up front.
+registerItemCategories(MENU);
 
 /** Fires `page_view` on first load and on every client-side route change. */
 export function AnalyticsProvider() {

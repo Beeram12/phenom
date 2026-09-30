@@ -4,58 +4,71 @@ The frontend sends user-activity events to the analytics backend. This document 
 contract between the two. The source of truth for types is
 [`lib/analytics.ts`](../lib/analytics.ts) (`EventName`, `EventPropertiesMap`, `AnalyticsEvent`).
 
-## Transport
+## How events reach the backend
 
-|             |                                                                                                                                         |
-| ----------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| Endpoint    | `process.env.NEXT_PUBLIC_EVENTS_API_URL`                                                                                                |
-| Method      | `POST`                                                                                                                                  |
-| Headers     | `Content-Type: application/json`                                                                                                        |
-| Body        | **One event per request** — a single JSON object (the envelope below)                                                                   |
-| Credentials | None (`credentials: "omit"`) — no cookies are sent                                                                                      |
-| Delivery    | Fire-and-forget with `fetch(..., { keepalive: true })`, scheduled in `requestIdleCallback`. Errors are swallowed; there are no retries. |
+The UI calls `track(eventName, properties)` with the UI-level events listed further down.
+`lib/analytics.ts` is an adapter: it translates each UI event into zero or more events in the
+**Food Events API** contract (see the backend's `docs/FRONTEND_EVENTS.md`), queues them, and
+sends them in batches.
 
-Because the request is cross-origin with a JSON content type, the browser sends a CORS
-preflight. The backend must respond to `OPTIONS` with:
+|              |                                                                                                                                                                                                                         |
+| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Endpoint     | `{NEXT_PUBLIC_EVENTS_API_URL}/api/v1/events/batch`                                                                                                                                                                      |
+| Method       | `POST`                                                                                                                                                                                                                  |
+| Headers      | `Content-Type: application/json`, `X-API-Key: {NEXT_PUBLIC_EVENTS_API_KEY}`                                                                                                                                             |
+| Body         | `{ "events": BackendEvent[] }` — up to 50 events per request (API limit is 100)                                                                                                                                         |
+| Batching     | Flushed every 3 s, immediately at 50 queued events, and when the tab is hidden or closed (`keepalive`)                                                                                                                  |
+| Retries      | Network errors and `5xx` are re-queued (same `event_id`s, so no duplicates) and retried after 5 s. `4xx` are dropped (a warning is logged in development: 401 = bad key, 422 = invalid). Queue is capped at 500 events. |
+| Failure mode | Never throws, never blocks rendering. If `NEXT_PUBLIC_EVENTS_API_URL` is unset nothing is sent.                                                                                                                         |
 
-```
-Access-Control-Allow-Origin: <frontend origin or *>
-Access-Control-Allow-Methods: POST, OPTIONS
-Access-Control-Allow-Headers: Content-Type
-```
+The backend must allow CORS `POST` from the site's origin with the `Content-Type` and
+`X-API-Key` headers.
 
-Any `2xx` response is fine; the body is ignored. If the env var is not set, no requests are
-made (events are still logged to the console in development).
-
-## Envelope
-
-Every event has the same top-level shape:
+### Backend event envelope
 
 ```jsonc
 {
-  "eventId": "9b1f7c1e-2f6a-4c55-9a39-0f2f5b1a4c77", // uuid v4, unique per event (use for de-duplication)
-  "eventName": "add_to_cart", // see EventName below
-  "timestamp": "2026-09-30T11:42:07.512Z", // ISO 8601, UTC, client clock
-  "sessionId": "5d0c...", // uuid, created once per browser, stored in localStorage (ss_session_id)
-  "userId": "a41e...", // anonymous uuid, created once per browser, stored in localStorage (ss_anon_user_id)
-  "page": "/menu", // window.location.pathname when the event fired
-  "deviceType": "mobile", // "mobile" | "tablet" | "desktop"
-  "properties": {/* event-specific, see below */},
+  "event_id": "9b1f7c1e-2f6a-4c55-9a39-0f2f5b1a4c77", // uuid; the first backend event reuses the UI eventId
+  "event_type": "item_added_to_cart",
+  "schema_version": 1,
+  "source": "web",
+  "event_time": "2026-09-30T11:42:07.512Z", // ISO 8601 UTC
+  "user_id": "a41e…", // anonymous uuid (localStorage ss_anon_user_id)
+  "session_id": "5d0c…", // uuid (localStorage ss_session_id)
+  "city": "hyderabad", // NEXT_PUBLIC_CITY
+  "payload": {/* per event_type, see below */},
 }
 ```
 
-| Field        | Type                                | Notes                                             |
-| ------------ | ----------------------------------- | ------------------------------------------------- |
-| `eventId`    | `string` (uuid)                     | Unique. Safe as an idempotency key.               |
-| `eventName`  | `EventName`                         | One of the 15 names below.                        |
-| `timestamp`  | `string` (ISO 8601)                 | Client time in UTC.                               |
-| `sessionId`  | `string` (uuid)                     | Stable per browser until localStorage is cleared. |
-| `userId`     | `string` (uuid)                     | Anonymous; no PII. Stable per browser.            |
-| `page`       | `string`                            | Path only, no query string.                       |
-| `deviceType` | `"mobile" \| "tablet" \| "desktop"` | From user agent, falling back to viewport width.  |
-| `properties` | `object`                            | Shape depends on `eventName`.                     |
+### UI event → backend event mapping
 
-Money values are in **Indian rupees (INR)** as numbers (e.g. `449`, `471.45`), not paise.
+| UI event (`track`)                                                                | Backend `event_type`                            | Payload                                                                                                                                                                                                                                                                      |
+| --------------------------------------------------------------------------------- | ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| first event in a tab session                                                      | `session_started`                               | `device_type`, `entry_page`                                                                                                                                                                                                                                                  |
+| `page_view` on `/` or `/menu` (once per tab)                                      | `restaurant_viewed`                             | `restaurant_id`, `restaurant_name`, `cuisine`                                                                                                                                                                                                                                |
+| `add_to_cart`                                                                     | `item_added_to_cart`                            | `item_id`, `name`, `category`, `unit_price`, `quantity`, `restaurant_id`                                                                                                                                                                                                     |
+| `remove_from_cart`                                                                | `item_removed_from_cart`                        | same as above                                                                                                                                                                                                                                                                |
+| `cart_quantity_changed`                                                           | `item_added_to_cart` / `item_removed_from_cart` | `quantity` = absolute change                                                                                                                                                                                                                                                 |
+| `checkout_started`                                                                | `checkout_started`                              | `order_id` (new `o_…` id), `restaurant_id`, `item_count`, `cart_value`                                                                                                                                                                                                       |
+| `order_placed`                                                                    | `payment_success` + `order_created`             | `payment_success`: `order_id`, `payment_id`, `amount`, `method`. `order_created`: `order_id`, `items[]` (`item_id`, `name`, `category`, `unit_price`, `quantity`), `subtotal`, `discount`, `tax`, `total`, `currency` (`INR`), `order_type` (`delivery`), `promised_eta_min` |
+| `order_failed`                                                                    | `payment_failed`                                | `order_id`, `amount`, `method`, `reason`                                                                                                                                                                                                                                     |
+| `order_cancelled`                                                                 | `order_cancelled`                               | `order_id`, `reason`, `cancelled_by` (`user`)                                                                                                                                                                                                                                |
+| `feedback_submitted`                                                              | `item_reviewed`                                 | `restaurant_id`, `overall_rating`, `item_ratings[]`, `tags`, `comment`, `order_id` (when reviewed after an order)                                                                                                                                                            |
+| `item_viewed`, `item_clicked`                                                     | —                                               | used only to remember item categories                                                                                                                                                                                                                                        |
+| `category_filtered`, `search_performed`, `cart_viewed`, `payment_method_selected` | —                                               | not sent (no backend equivalent)                                                                                                                                                                                                                                             |
+
+Categories are sent as the backend enum: `starter`, `main`, `dessert`, `drink`
+(from the menu's Starters / Mains / Desserts / Beverages).
+
+**Order ids.** The backend expects one `order_id` across `checkout_started`, `payment_*`,
+`order_*` and `item_reviewed`. `checkout_started` mints the id; the order's first payment
+event adopts it, and later events (cancel, review) look it up through an alias stored in
+localStorage (`ss_order_alias`). The `SS-XXXXXX` id shown to customers is UI-only.
+
+## UI events (input to `track()`)
+
+Every UI event carries `eventId`, `eventName`, `timestamp`, `sessionId`, `userId`, `page`,
+`deviceType` and `properties`, and is logged to the console in development.
 
 ## `EventName`
 
@@ -242,53 +255,80 @@ Fired when a review is submitted, from an item page or after a successful order.
 | `source`        | `"item_page" \| "order_page"` | Where the review was written                                                    |
 | `orderId`       | `string` (optional)           | Present when `source` is `order_page`                                           |
 
-## Example payloads
+## Example request
 
-```json
-{
-  "eventId": "0f8e6f38-4f1e-4c1b-8d1d-0a5f0b7e2c11",
-  "eventName": "order_placed",
-  "timestamp": "2026-09-30T12:03:44.120Z",
-  "sessionId": "b7a2d0c4-0e7b-4f5e-9d1a-3c2f4b6a8e90",
-  "userId": "e3c1f5a2-7b9d-4c6e-8f0a-1b2c3d4e5f60",
-  "page": "/checkout",
-  "deviceType": "mobile",
-  "properties": {
-    "orderId": "SS-7K2Q9M",
-    "items": [
-      { "itemId": "butter-chicken", "name": "Butter Chicken", "qty": 1, "price": 449 },
-      { "itemId": "masala-chai", "name": "Masala Chai", "qty": 2, "price": 79 }
-    ],
-    "subtotal": 607,
-    "tax": 30.35,
-    "total": 637.35,
-    "paymentMethod": "upi"
-  }
-}
+What the backend receives when a customer pays for an order (one batch, two events):
+
+```http
+POST /api/v1/events/batch
+Content-Type: application/json
+X-API-Key: <NEXT_PUBLIC_EVENTS_API_KEY>
 ```
 
 ```json
 {
-  "eventId": "2c4e6a80-1b3d-4f5a-9c7e-8d0f2a4b6c8e",
-  "eventName": "feedback_submitted",
-  "timestamp": "2026-09-30T12:10:02.004Z",
-  "sessionId": "b7a2d0c4-0e7b-4f5e-9d1a-3c2f4b6a8e90",
-  "userId": "e3c1f5a2-7b9d-4c6e-8f0a-1b2c3d4e5f60",
-  "page": "/order/SS-7K2Q9M",
-  "deviceType": "mobile",
-  "properties": {
-    "itemId": "butter-chicken",
-    "rating": 5,
-    "commentLength": 34,
-    "comment": "Silky gravy, perfectly charred.",
-    "source": "order_page",
-    "orderId": "SS-7K2Q9M"
-  }
+  "events": [
+    {
+      "event_id": "0f8e6f38-4f1e-4c1b-8d1d-0a5f0b7e2c11",
+      "event_type": "payment_success",
+      "schema_version": 1,
+      "source": "web",
+      "event_time": "2026-09-30T12:03:44.120Z",
+      "user_id": "e3c1f5a2-7b9d-4c6e-8f0a-1b2c3d4e5f60",
+      "session_id": "b7a2d0c4-0e7b-4f5e-9d1a-3c2f4b6a8e90",
+      "city": "hyderabad",
+      "payload": {
+        "order_id": "o_4f2a9c1e7b",
+        "restaurant_id": "r_saffron_sage",
+        "payment_id": "p_8d3b0e6a21",
+        "amount": 637.35,
+        "method": "upi"
+      }
+    },
+    {
+      "event_id": "5a7c9e1b-3d5f-4a2c-8e0b-6f1d3a5c7e92",
+      "event_type": "order_created",
+      "schema_version": 1,
+      "source": "web",
+      "event_time": "2026-09-30T12:03:44.120Z",
+      "user_id": "e3c1f5a2-7b9d-4c6e-8f0a-1b2c3d4e5f60",
+      "session_id": "b7a2d0c4-0e7b-4f5e-9d1a-3c2f4b6a8e90",
+      "city": "hyderabad",
+      "payload": {
+        "order_id": "o_4f2a9c1e7b",
+        "restaurant_id": "r_saffron_sage",
+        "items": [
+          {
+            "item_id": "butter-chicken",
+            "name": "Butter Chicken",
+            "category": "main",
+            "unit_price": 449,
+            "quantity": 1
+          },
+          {
+            "item_id": "masala-chai",
+            "name": "Masala Chai",
+            "category": "drink",
+            "unit_price": 79,
+            "quantity": 2
+          }
+        ],
+        "subtotal": 607,
+        "discount": 0,
+        "tax": 30.35,
+        "total": 637.35,
+        "currency": "INR",
+        "order_type": "delivery",
+        "promised_eta_min": 35
+      }
+    }
+  ]
 }
 ```
 
 ## Privacy notes
 
 - No names, phone numbers, addresses, UPI IDs or card details are ever included in events.
+- `NEXT_PUBLIC_EVENTS_API_KEY` is visible to anyone who loads the site; scope it to event ingestion only.
 - `userId` is a random identifier, not linked to any account.
 - Review comments are free text and could contain anything a user types.

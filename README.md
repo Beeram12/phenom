@@ -58,7 +58,10 @@ npm run dev                  # http://localhost:3000
 
 | Variable                             | Required            | Description                                                                                                                                                                           |
 | ------------------------------------ | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `NEXT_PUBLIC_EVENTS_API_URL`         | Yes (for analytics) | URL that receives analytics events as JSON `POST`s. If unset, events are only logged to the console in development.                                                                   |
+| `NEXT_PUBLIC_EVENTS_API_URL`         | Yes (for analytics) | Base URL of the Food Events API. Events are batched to `{url}/api/v1/events/batch`. If unset, nothing is sent (events are still logged to the console in development).                |
+| `NEXT_PUBLIC_EVENTS_API_KEY`         | Yes (for analytics) | Sent as the `X-API-Key` header. It ends up in the browser bundle, so use a write-only ingest key.                                                                                     |
+| `NEXT_PUBLIC_CITY`                   | No                  | City tag on every event (default `hyderabad`).                                                                                                                                        |
+| `NEXT_PUBLIC_RESTAURANT_ID`          | No                  | Restaurant id on every event (default `r_saffron_sage`).                                                                                                                              |
 | `NEXT_PUBLIC_SHOW_PAYMENT_SIMULATOR` | No                  | Defaults to showing a "Demo: payment outcome" switch at checkout (random / always succeed / always fail). Set to `false` to hide it; the mock gateway then succeeds ~85% of the time. |
 
 `NEXT_PUBLIC_*` variables are inlined at build time, so redeploy after changing them.
@@ -72,9 +75,12 @@ track("add_to_cart", { itemId: "butter-chicken", name: "Butter Chicken", qty: 1,
 ```
 
 It adds `eventId` (uuid), `timestamp` (ISO), `sessionId` and anonymous `userId` (both kept in
-`localStorage`), `page` and `deviceType`, then POSTs JSON to `NEXT_PUBLIC_EVENTS_API_URL`. It is
-fire-and-forget (`keepalive`, idle-scheduled), never blocks the UI, fails silently, and logs to
-the console in development. `EventName` and per-event property types are exported for type safety.
+`localStorage`), `page` and `deviceType`, then translates the event into the Food Events API
+contract (`session_started`, `restaurant_viewed`, `item_added_to_cart`, `checkout_started`,
+`payment_success`, `order_created`, `payment_failed`, `order_cancelled`, `item_reviewed`, …) and
+sends batches to `{NEXT_PUBLIC_EVENTS_API_URL}/api/v1/events/batch` with the `X-API-Key` header.
+It never blocks the UI, retries network/5xx errors, and logs to the console in development.
+`EventName` and per-event property types are exported for type safety.
 
 | Event                     | Fired when                       | Key properties                                                  |
 | ------------------------- | -------------------------------- | --------------------------------------------------------------- |
@@ -94,8 +100,9 @@ the console in development. `EventName` and per-event property types are exporte
 | `order_cancelled`         | Customer cancelled within 60 s   | `orderId`, `reason`                                             |
 | `feedback_submitted`      | Review submitted                 | `itemId`, `rating`, `commentLength`, `comment`, `source`        |
 
-Full schemas and example payloads: [`docs/EVENTS.md`](docs/EVENTS.md). The backend must allow
-CORS `POST` with `Content-Type: application/json` from the site's origin.
+The table above lists the UI events; [`docs/EVENTS.md`](docs/EVENTS.md) shows how each one maps to
+backend events and payloads. The backend must allow CORS `POST` with the `Content-Type` and
+`X-API-Key` headers from the site's origin.
 
 ## Project structure
 
@@ -122,7 +129,7 @@ The repo is connected to Vercel, so every push to `main` deploys to production a
 (and pull requests get preview deployments). To set it up yourself:
 
 1. Import the GitHub repo at [vercel.com/new](https://vercel.com/new) (framework: Next.js, defaults are fine).
-2. Add `NEXT_PUBLIC_EVENTS_API_URL` under **Settings → Environment Variables** (Production and Preview).
+2. Add `NEXT_PUBLIC_EVENTS_API_URL` and `NEXT_PUBLIC_EVENTS_API_KEY` under **Settings → Environment Variables** (Production and Preview).
 3. Deploy. Redeploy after changing environment variables.
 
 ## Screenshots
