@@ -7,6 +7,7 @@ Invalid events are published to the dead-letter topic with the validation error.
 The service is stateless: it has no database.
 """
 import logging
+from typing import Optional
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
@@ -40,7 +41,7 @@ app.add_middleware(CORSMiddleware, allow_origins=config.CORS_ORIGINS,
                    allow_methods=["*"], allow_headers=["*"])
 
 
-def require_api_key(x_api_key: str | None = Header(default=None)):
+def require_api_key(x_api_key: Optional[str] = Header(default=None)):
     """Reject requests that do not carry the shared API key."""
     if x_api_key != config.API_KEY:
         raise HTTPException(401, "Invalid or missing X-API-Key")
@@ -54,7 +55,7 @@ def _format_error(e: Exception) -> str:
     return str(e)
 
 
-def _process(producer, raw) -> tuple[bool, str | None]:
+def _process(producer, raw) -> tuple[bool, Optional[str]]:
     """
     Validate one event and publish it. Invalid events are sent to the DLQ
     (never dropped silently). Returns (accepted, error_reason).

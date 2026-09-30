@@ -7,6 +7,7 @@ Both expose the same `send()` / `flush()` interface.
 """
 import json
 import logging
+from typing import Optional
 
 from confluent_kafka import Producer
 
@@ -46,7 +47,7 @@ class EventProducer:
         if err:
             log.error("Delivery failed: topic=%s error=%s", msg.topic(), err)
 
-    def send(self, topic: str, key: str | None, value: dict) -> None:
+    def send(self, topic: str, key: Optional[str], value: dict) -> None:
         """Queue one event for asynchronous delivery to `topic`."""
         data = json.dumps(value, default=str).encode()
         encoded_key = key.encode() if key else None
@@ -71,7 +72,7 @@ class FileProducer:
     def __init__(self, path: str):
         self._file = open(path, "a", encoding="utf-8")
 
-    def send(self, topic: str, key: str | None, value: dict) -> None:
+    def send(self, topic: str, key: Optional[str], value: dict) -> None:
         line = json.dumps({"topic": topic, "key": key, "value": value}, default=str)
         self._file.write(line + "\n")
         self._file.flush()
